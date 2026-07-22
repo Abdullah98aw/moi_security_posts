@@ -126,7 +126,7 @@ Implemented workflow helpers:
 
 Notifications are local objects stored in `govpublish-notifications`. The app creates notifications from workflow actions such as AI submission, ministry approval, return, platform/language return, and calendar rescheduling.
 
-Notifications are not actually delivered to specific user inboxes. They are stored in one shared client-side list. Some notification calls include a `userId`, but the current `sendNotification` implementation does not persist the recipient ID.
+Notifications persist an optional `recipientId` and the shell/notifications page filters the shared local list to the signed-in user. Seeded workflow notifications are assigned to the appropriate approver/admin demo users. This is still client-side filtering, not server-delivered notifications.
 
 ### Audit System
 
@@ -381,7 +381,7 @@ Permissions:
 - View audit logs.
 - View analytics.
 - Export analytics records.
-- In Content Library, archive/export/version/preview buttons may appear because the page action rendering does not fully hide all non-create actions for auditors.
+- In Content Library, auditors get read-only View, Preview, and Versions actions only.
 
 Hidden pages in sidebar:
 
@@ -922,7 +922,7 @@ Implemented actions:
 
 Notes:
 
-- Auditor has sidebar access to Content Library. The page action renderer does not fully hide archive/export/version/preview actions for auditor, although create/duplicate/follow-up is blocked by `canCreate`.
+- Auditor has sidebar access to Content Library with read-only View, Preview, and Versions actions. Archive, restore, duplicate, export, and follow-up actions are hidden from the auditor UI.
 
 ## 17. AI Workspace
 
@@ -1104,7 +1104,8 @@ Route: `/admin/reset`
 - Clears notifications and audit logs.
 - Restores channel settings.
 - Clears disabled languages.
-- Does not explicitly clear all other localStorage keys such as managed users, sectors, terms, workflow settings, AI settings, health checks, or export records.
+- Clears every `govpublish-*` localStorage key, including managed users, sectors, terms, workflow settings, AI settings, health checks, and export records.
+- Resets language to Arabic, exits presentation mode, and returns the app to the signed-out state.
 
 ## 20. Persistent Storage
 
@@ -1227,11 +1228,6 @@ The latest observed run passed 28 tests in 1 test file.
 - Some Arabic strings in the source appear mojibake-encoded in the repository text.
 - Hash routing means routes are client-only.
 - Login accepts any selected demo email with a static displayed password; no password validation.
-- Notifications are globally stored and do not persist recipient ownership.
-- Admin reset does not clear every localStorage key.
-- Auditor can access Content Library actions that are not all read-only at the UI level, although workflow transitions are blocked by helper rules.
-- Analytics chart component groups data by sector abbreviation even for panel titles such as publishing success rate and approval trend.
-- The `CreatePublication` component exists but current route uses `CreatePublicationDemo`.
 - A `traffic` sector template exists, but no `traffic` sector is implemented in `sectors`.
 - Production build reports a chunk-size warning because the app is bundled as a large single-page module.
 

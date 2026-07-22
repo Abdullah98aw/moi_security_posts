@@ -251,6 +251,7 @@ interface Publication {
 interface NotificationItem {
   id: string;
   type: string;
+  recipientId?: string;
   titleAr: string;
   titleEn: string;
   messageAr: string;
@@ -809,8 +810,8 @@ function App() {
   const [channelsState, setChannelsState] = useLocalState<Channel[]>("govpublish-channels", channelSettings);
   const [disabledLanguages, setDisabledLanguages] = useLocalState<string[]>("govpublish-disabled-languages", []);
   const [notifications, setNotifications] = useLocalState<NotificationItem[]>("govpublish-notifications", [
-    { id: "n1", type: "review", titleAr: "طلب اعتماد جديد", titleEn: "New approval request", messageAr: "منشور أمني بانتظار مراجعة الوزارة.", messageEn: "A sector publication awaits ministry review.", read: false, publicationId: "pub-3", createdAt: dayOffset(0, 9) },
-    { id: "n2", type: "token", titleAr: "تنبيه اتصال", titleEn: "Connection warning", messageAr: "رمز منصة Instagram يقترب من الانتهاء.", messageEn: "Instagram token is expiring soon.", read: false, createdAt: dayOffset(0, 8) },
+    { id: "n1", type: "review", recipientId: "u3", titleAr: "طلب اعتماد جديد", titleEn: "New approval request", messageAr: "منشور أمني بانتظار مراجعة الوزارة.", messageEn: "A sector publication awaits ministry review.", read: false, publicationId: "pub-3", createdAt: dayOffset(0, 9) },
+    { id: "n2", type: "token", recipientId: "u4", titleAr: "تنبيه اتصال", titleEn: "Connection warning", messageAr: "رمز منصة Instagram يقترب من الانتهاء.", messageEn: "Instagram token is expiring soon.", read: false, createdAt: dayOffset(0, 8) },
   ]);
   const [toast, setToast] = useState("");
   const t = text[lang];
@@ -865,6 +866,7 @@ function App() {
     setNotifications((items) => [{
       id: `n-${Date.now()}-${items.length}`,
       type,
+      recipientId: userId,
       titleAr,
       titleEn,
       messageAr,
@@ -878,10 +880,11 @@ function App() {
   if (!currentUser) {
     return <Login lang={lang} setLang={setLang} onLogin={(user) => { setCurrentUser(user); notify(lang === "ar" ? "تم تسجيل الدخول بنجاح" : "Signed in"); }} />;
   }
+  const visibleNotifications = notificationsForUser(currentUser, notifications);
 
   return (
     <HashRouter>
-      <Shell lang={lang} setLang={setLang} user={currentUser} setUser={setCurrentUser} notifications={notifications} setNotifications={setNotifications} toast={toast} presentationMode={presentationMode} setPresentationMode={setPresentationMode}>
+      <Shell lang={lang} setLang={setLang} user={currentUser} setUser={setCurrentUser} notifications={visibleNotifications} setNotifications={setNotifications} toast={toast} presentationMode={presentationMode} setPresentationMode={setPresentationMode}>
         <AppErrorBoundary lang={lang}>
         <Routes>
           <Route path="/" element={<Dashboard lang={lang} user={currentUser} publications={publications} />} />
@@ -900,14 +903,14 @@ function App() {
           <Route path="/channels" element={<ChannelsPage lang={lang} notify={notify} channelsState={channelsState} setChannelsState={setChannelsState} recordAction={recordAction} />} />
           <Route path="/ai-settings" element={<AISettingsPage lang={lang} notify={notify} recordAction={recordAction} />} />
           <Route path="/workflows" element={<WorkflowsPage lang={lang} notify={notify} recordAction={recordAction} />} />
-          <Route path="/notifications" element={<NotificationsPage lang={lang} notifications={notifications} setNotifications={setNotifications} publications={publications} notify={notify} />} />
+          <Route path="/notifications" element={<NotificationsPage lang={lang} notifications={visibleNotifications} setNotifications={setNotifications} publications={publications} notify={notify} />} />
           <Route path="/analytics" element={<AnalyticsPage lang={lang} user={currentUser} publications={publications} recordAction={recordAction} notify={notify} />} />
           <Route path="/audit" element={<AuditPage lang={lang} publications={publications} auditLogs={auditLogs} />} />
           <Route path="/users" element={<UsersPage lang={lang} notify={notify} recordAction={recordAction} />} />
           <Route path="/sectors" element={<SectorsPage lang={lang} notify={notify} recordAction={recordAction} />} />
           <Route path="/health" element={<HealthPage lang={lang} notify={notify} recordAction={recordAction} />} />
           <Route path="/admin/languages" element={<LanguageManagementPage lang={lang} disabledLanguages={disabledLanguages} setDisabledLanguages={setDisabledLanguages} notify={notify} recordAction={recordAction} />} />
-          <Route path="/admin/reset" element={<ResetDemoPage lang={lang} setPublications={setPublications} setNotifications={setNotifications} setAuditLogs={setAuditLogs} setChannelsState={setChannelsState} setDisabledLanguages={setDisabledLanguages} />} />
+          <Route path="/admin/reset" element={<ResetDemoPage lang={lang} setLang={setLang} setCurrentUser={setCurrentUser} setPresentationMode={setPresentationMode} setPublications={setPublications} setNotifications={setNotifications} setAuditLogs={setAuditLogs} setChannelsState={setChannelsState} setDisabledLanguages={setDisabledLanguages} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </AppErrorBoundary>
@@ -948,22 +951,22 @@ function Login({ lang, setLang, onLogin }: { lang: Lang; setLang: (l: Lang) => v
 }
 
 function Shell({ lang, setLang, user, setUser, notifications, setNotifications, toast, presentationMode, setPresentationMode, children }: { lang: Lang; setLang: (l: Lang) => void; user: User; setUser: (u: User | null) => void; notifications: NotificationItem[]; setNotifications: React.Dispatch<React.SetStateAction<NotificationItem[]>>; toast: string; presentationMode: boolean; setPresentationMode: (value: boolean) => void; children: React.ReactNode }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth <= 760);
   const [openNotes, setOpenNotes] = useState(false);
   const t = text[lang];
   const role = roles.find((r) => r.id === user.role)!;
   const nav = navItems(user.role, t);
   const sector = sectors.find((s) => s.id === user.sectorId);
   return (
-    <div className={presentationMode ? "app-shell presentation" : "app-shell"}>
+    <div className={`${presentationMode ? "app-shell presentation" : "app-shell"} role-${user.role}`}>
       <aside className={collapsed ? "sidebar collapsed" : "sidebar"}>
         <div className="side-head"><div className="seal">GP</div><div><b>{t.app}</b><span>{lang === "ar" ? "عمليات النشر" : "Publishing ops"}</span></div></div>
         <button className="ghost collapse" onClick={() => setCollapsed(!collapsed)}><PanelLeftClose /></button>
-        <nav>{nav.map((n) => <a href={`#${n.path}`} key={n.path}><n.icon /> <span>{n.label}</span></a>)}</nav>
+        <nav>{nav.map((n) => <a href={`#${n.path}`} key={n.path} onClick={() => { if (window.innerWidth <= 760) setCollapsed(true); }}><n.icon /> <span>{n.label}</span></a>)}</nav>
       </aside>
       <section className="main">
         <header className="topbar">
-          <div className="crumb"><Menu /><span>{sector ? (lang === "ar" ? sector.nameAr : sector.nameEn) : lang === "ar" ? "وزارة الداخلية" : "Ministry of Interior"}</span><ChevronLeft /><strong>{lang === "ar" ? role.ar : role.en}</strong></div>
+          <div className="crumb"><button className="mobile-menu" onClick={() => setCollapsed(false)}><Menu /></button><span>{sector ? (lang === "ar" ? sector.nameAr : sector.nameEn) : lang === "ar" ? "وزارة الداخلية" : "Ministry of Interior"}</span><ChevronLeft /><strong>{lang === "ar" ? role.ar : role.en}</strong></div>
           <div className="top-actions">
             <label className="search"><Search /><input placeholder={t.search} /></label>
             <button className={presentationMode ? "primary" : ""} onClick={() => setPresentationMode(!presentationMode)}><PlayCircle /> {lang === "ar" ? "وضع العرض" : "Presentation Mode"}</button>
@@ -1025,48 +1028,6 @@ function Dashboard({ lang, user, publications }: { lang: Lang; user: User; publi
       <PublicationTable lang={lang} publications={visible.slice(0, 8)} />
       <Panel title={lang === "ar" ? "النشاط القادم والتعليقات" : "Upcoming work and comments"}>{visible.slice(0, 5).map((p) => <ActivityRow key={p.id} lang={lang} p={p} />)}</Panel>
     </div>
-  </Page>;
-}
-
-function CreatePublication({ lang, user, publications, setPublications, notify }: { lang: Lang; user: User; publications: Publication[]; setPublications: React.Dispatch<React.SetStateAction<Publication[]>>; notify: (m: string) => void }) {
-  const navigate = useNavigate();
-  const [step, setStep] = useState(1);
-  const [processing, setProcessing] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [form, setForm] = useState({ title: "حملة السلامة المنزلية", sectorId: user.sectorId || "civil-defense", category: "Public Awareness", priority: "High" as Priority, campaign: "السلامة أولا", reference: `INT-${Date.now().toString().slice(-5)}`, purpose: "تعزيز وعي المجتمع بإجراءات السلامة المنزلية", content: sampleArabic[0], hashtags: "#السلامة_المنزلية #الدفاع_المدني", audience: "الأسر والمقيمون", geo: "جميع مناطق المملكة", schedule: "2026-07-24T10:30", immediate: false });
-  const [selectedChannels, setSelectedChannels] = useState(["X", "Instagram", "Ministry Portal", "Saudi Press Agency"]);
-  const [selectedLanguages, setSelectedLanguages] = useState(["Arabic", "English", "French", "Urdu"]);
-  const [media, setMedia] = useState<MediaAsset[]>([{ id: "new-media", name: "home-safety-awareness.jpg", type: "image", size: "2.4 MB", dimensions: "1600 x 900", status: "Ready", altText: "أسرة تفحص أدوات السلامة المنزلية", preview: "#ccfbf1" }]);
-  const stages = ["تحليل المحتوى العربي", "تصحيح الإملاء والنحو", "إزالة التكرار", "تطبيق النبرة الحكومية", "مطابقة المصطلحات المعتمدة", "تكييف المحتوى حسب القناة", "ترجمة اللغات المختارة", "فحص المعلومات الحساسة", "توليد النسخ النهائية"];
-  function save(status: Status) {
-    const id = `pub-${Date.now()}`;
-    const pub = makePublication(publications.length + 1);
-    const created: Publication = { ...pub, id, reference: `GP-2026-${publications.length + 1}`, title: form.title, sourceArabic: form.content, improvedArabic: form.content.replace("تعلن", "أعلنت").replace("وتهدف", "وتهدف الحملة كذلك"), sectorId: form.sectorId, category: form.category, priority: form.priority, campaign: form.campaign, languages: selectedLanguages, channels: selectedChannels, media, status, scheduledAt: form.schedule, updatedAt: new Date().toISOString(), findings: [{ id: "sf-new", type: "Emergency contact recommendation", severity: "Info", text: "إضافة مرجع اتصال", explanationAr: "لا توجد معلومات حساسة حرجة، ويوصى بإضافة مرجع تواصل للطوارئ.", explanationEn: "No critical sensitive information detected; an emergency contact reference is recommended.", blocking: false }] };
-    setPublications((items) => [created, ...items]);
-    notify(lang === "ar" ? "تم حفظ النشر" : "Publication saved");
-    navigate(status === "AI Review" ? `/ai/${id}` : "/sector-publications");
-  }
-  function runAi() {
-    setProcessing(true);
-    setProgress(0);
-    const timer = window.setInterval(() => setProgress((p) => {
-      const next = p + 12;
-      if (next >= 100) {
-        window.clearInterval(timer);
-        setProcessing(false);
-        save("AI Review");
-      }
-      return Math.min(next, 100);
-    }), 450);
-  }
-  return <Page title={lang === "ar" ? "إنشاء نشر جديد" : "Create New Publication"} subtitle={lang === "ar" ? "مسار متعدد الخطوات من الصياغة حتى مخرجات الذكاء الاصطناعي." : "A multi-step workflow from drafting to AI output."}>
-    <Stepper step={step} labels={["المعلومات", "الوسائط", "القنوات", "اللغات", "المعالجة"]} />
-    {step === 1 && <Panel title={lang === "ar" ? "المعلومات الأساسية" : "Basic information"}><div className="form-grid">{["title", "campaign", "reference", "purpose", "audience", "geo"].map((k) => <label key={k}>{labels[k][lang]}<input value={(form as any)[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} /></label>)}<label>{lang === "ar" ? "التصنيف" : "Category"}<select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>{categories.map((c) => <option key={c}>{c}</option>)}</select></label><label>{lang === "ar" ? "الأولوية" : "Priority"}<select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as Priority })}>{["Low", "Normal", "High", "Urgent"].map((c) => <option key={c}>{c}</option>)}</select></label><label className="span">{lang === "ar" ? "النص العربي المصدر" : "Arabic source content"}<textarea value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} /></label><label>{lang === "ar" ? "تاريخ ووقت النشر" : "Publication time"}<input type="datetime-local" value={form.schedule} onChange={(e) => setForm({ ...form, schedule: e.target.value })} /></label><label className="check inline"><input type="checkbox" checked={form.immediate} onChange={(e) => setForm({ ...form, immediate: e.target.checked })} /> {lang === "ar" ? "نشر فوري بعد الاعتماد" : "Immediate after approval"}</label></div></Panel>}
-    {step === 2 && <Panel title={lang === "ar" ? "رفع الوسائط" : "Media upload"}><div className="drop"><UploadCloud /><b>{lang === "ar" ? "اسحب الملفات هنا أو اختر ملفا" : "Drag files here or choose files"}</b><button onClick={() => setMedia([...media, { id: `m-${Date.now()}`, name: "awareness-card.png", type: "image", size: "1.8 MB", dimensions: "1080 x 1080", status: "Scanning", altText: "وصف بديل مولد بالذكاء الاصطناعي", preview: "#fef3c7" }])}>{lang === "ar" ? "إضافة ملف تجريبي" : "Add demo file"}</button></div><MediaGrid media={media} setMedia={setMedia} /></Panel>}
-    {step === 3 && <SelectableGrid items={channelSettings} selected={selectedChannels} setSelected={setSelectedChannels} lang={lang} />}
-    {step === 4 && <Panel title={lang === "ar" ? "اختيار اللغات" : "Select languages"}><div className="card-grid">{languages.map((l) => <button key={l} className={selectedLanguages.includes(l) ? "choice selected" : "choice"} onClick={() => setSelectedLanguages((arr) => arr.includes(l) ? arr.filter((x) => x !== l) : [...arr, l])}><Languages /><b>{l}</b><span>{lang === "ar" ? "مصطلحات معتمدة متاحة" : "Official terms available"}</span></button>)}</div></Panel>}
-    {step === 5 && <Panel title={lang === "ar" ? "المعالجة الذكية" : "AI processing"}>{processing ? <div><div className="progress"><span style={{ width: `${progress}%` }} /></div>{stages.map((s, i) => <div className={i <= Math.floor(progress / 12) ? "stage done" : "stage"} key={s}><Sparkles /> {lang === "ar" ? s : ["Analyzing Arabic content", "Checking spelling and grammar", "Detecting repeated wording", "Applying official government tone", "Checking approved terminology", "Adapting content by channel", "Translating selected languages", "Checking sensitive information", "Generating final versions"][i]}</div>)}</div> : <div className="ai-ready"><Sparkles /><h3>{lang === "ar" ? "جاهز لمعالجة المحتوى" : "Ready to process content"}</h3><p>{lang === "ar" ? "سيتم تحسين الصياغة والترجمة وتوليد نسخ خاصة بكل قناة." : "The system will improve, translate, and adapt channel-specific versions."}</p><button className="primary" onClick={runAi}>{text[lang].runAi}</button></div>}</Panel>}
-    <div className="wizard-actions"><button disabled={step === 1} onClick={() => setStep(step - 1)}>{lang === "ar" ? "السابق" : "Back"}</button><button onClick={() => save("Draft")}>{text[lang].saveDraft}</button>{step < 5 ? <button className="primary" onClick={() => setStep(step + 1)}>{lang === "ar" ? "التالي" : "Next"}</button> : <button className="primary" onClick={runAi}>{text[lang].runAi}</button>}</div>
   </Page>;
 }
 
@@ -1629,6 +1590,7 @@ function LibraryPage({ lang, user, publications, setPublications, notify, record
     notify(lang === "ar" ? "تم إنشاء سجل تصدير للمنشور" : "Publication export record created");
   }
   function actions(p: Publication) {
+    if (user.role === "auditor") return <ActionBar><a href={`#/approvals/${p.id}`}>{lang === "ar" ? "عرض" : "View"}</a><a href={`#/preview/${p.id}/${encodeURIComponent(p.selectedPlatforms[0] || "X")}`}>{lang === "ar" ? "معاينة" : "Preview"}</a><button onClick={() => setVersionTarget(p)}>{lang === "ar" ? "الإصدارات" : "Versions"}</button></ActionBar>;
     return <ActionBar><a href={`#/approvals/${p.id}`}>{lang === "ar" ? "عرض" : "View"}</a>{canCreate && !p.isArchived && <button onClick={() => duplicate(p)}>{lang === "ar" ? "نسخ" : "Duplicate"}</button>}{!p.isArchived && <button onClick={() => setArchiveTarget(p)}>{lang === "ar" ? "أرشفة" : "Archive"}</button>}{p.isArchived && ["admin", "creator", "reviewer"].includes(user.role) && <button onClick={() => restore(p)}>{lang === "ar" ? "استعادة" : "Restore"}</button>}<button onClick={() => exportPublication(p)}>{lang === "ar" ? "سجل تصدير" : "Export Record"}</button><a href={`#/preview/${p.id}/${encodeURIComponent(p.selectedPlatforms[0] || "X")}`}>{lang === "ar" ? "معاينة" : "Preview"}</a><button onClick={() => setVersionTarget(p)}>{lang === "ar" ? "الإصدارات" : "Versions"}</button>{["Published", "Partially Published", "Publishing Failed"].includes(p.status) && <a href="#/publishing">{lang === "ar" ? "نتائج النشر" : "Publishing Results"}</a>}{canCreate && ["Published", "Approved"].includes(p.status) && <button onClick={() => createFollowUp(p)}>{lang === "ar" ? "متابعة" : "Follow-up"}</button>}</ActionBar>;
   }
   return <Page title={lang === "ar" ? "مكتبة المحتوى" : "Content Library"} subtitle={lang === "ar" ? "مستودع قابل للتدقيق مع نسخ وأرشفة وتصدير واستعادة." : "Auditable repository with duplicate, archive, export, and restore actions."} right={<button onClick={() => setTable(!table)}>{table ? "Cards" : "Table"}</button>}>{visible.length === 0 ? <Panel title={lang === "ar" ? "لا توجد سجلات متاحة" : "No records available"}><p>{lang === "ar" ? "لا توجد منشورات ضمن صلاحيات هذا الحساب." : "No publications are available for this account."}</p></Panel> : table ? <PublicationTable lang={lang} publications={visible} action={actions} /> : <div className="card-grid">{visible.map((p) => <div className="content-card" key={p.id}><Badge status={p.status} lang={lang} />{p.isArchived && <Badge status="Archived" lang={lang} />}<h3>{p.title}</h3><p>{p.sourceArabic.slice(0, 110)}...</p><small>{p.sourceReference ? `Linked to ${p.sourceReference}` : p.reference}</small>{actions(p)}</div>)}</div>}{archiveTarget && <Modal title={lang === "ar" ? "تأكيد الأرشفة" : "Confirm archive"} onClose={() => setArchiveTarget(null)}><p>{lang === "ar" ? "الأرشفة لا تحذف السجل. سيتم حفظ المحتوى والإصدارات وقرارات الاعتماد ونتائج النشر." : "Archiving does not delete the record. Content, versions, approvals, and publishing results are preserved."}</p><ActionBar><button onClick={() => setArchiveTarget(null)}>{lang === "ar" ? "إلغاء" : "Cancel"}</button><button className="primary" onClick={confirmArchive}>{lang === "ar" ? "تأكيد الأرشفة" : "Confirm Archive"}</button></ActionBar></Modal>}{versionTarget && <Modal title={lang === "ar" ? "الإصدارات" : "Version History"} onClose={() => setVersionTarget(null)}><div className="timeline">{versionTarget.versionHistory.map((entry, index) => <div className="timeline-item" key={`${entry}-${index}`}><time>{index + 1}</time><span /><b>{entry}</b></div>)}</div></Modal>}</Page>;
@@ -1719,6 +1681,7 @@ function WorkflowsPage({ lang, notify, recordAction }: { lang: Lang; notify: (m:
   return <Page title={text[lang].workflows} subtitle={lang === "ar" ? "مسارات اعتماد حسب القطاع والأولوية." : "Approval paths by sector and priority."}>{workflows.map((w, index) => <Panel key={w} title={w}><div className="workflow">{w.split("→").map((s) => <span key={s}>{s.trim()}</span>)}</div><ActionBar><button onClick={() => { setWorkflows((items) => items.map((item, i) => i === index ? `${item} · updated ${new Date().toLocaleTimeString()}` : item)); recordAction("Updated approval workflow", undefined, "Success", w); notify(lang === "ar" ? "تم تحديث المسار" : "Workflow updated"); }}>Edit</button><button onClick={() => { setWorkflows((items) => items.map((item, i) => i === index ? `${item} · high-priority escalation` : item)); recordAction("Updated workflow priority rules", undefined, "Success", w); notify("Priority rules updated"); }}>Priority rules</button></ActionBar></Panel>)}</Page>;
 }
 function NotificationsPage({ lang, notifications, setNotifications, publications, notify }: { lang: Lang; notifications: NotificationItem[]; setNotifications: React.Dispatch<React.SetStateAction<NotificationItem[]>>; publications: Publication[]; notify: (m: string) => void }) {
+  const visibleIds = new Set(notifications.map((item) => item.id));
   function mark(id: string, read: boolean) {
     setNotifications((items) => items.map((item) => item.id === id ? { ...item, read } : item));
     notify(read ? (lang === "ar" ? "تم تحديد الإشعار كمقروء" : "Notification marked as read") : (lang === "ar" ? "تم تحديد الإشعار كغير مقروء" : "Notification marked as unread"));
@@ -1736,7 +1699,7 @@ function NotificationsPage({ lang, notifications, setNotifications, publications
     }
     mark(n.id, true);
   }
-  return <Page title={text[lang].notifications} right={<button className="primary" onClick={() => { setNotifications((items) => items.map((n) => ({ ...n, read: true }))); notify(lang === "ar" ? "تم تحديد كل الإشعارات كمقروءة" : "All notifications marked as read"); }}>{lang === "ar" ? "تحديد الكل كمقروء" : "Mark all read"}</button>}>{notifications.length === 0 ? <Panel title={lang === "ar" ? "لا توجد إشعارات" : "No notifications"}><p>{lang === "ar" ? "لا توجد إشعارات عمل حالية." : "No workflow notifications are currently pending."}</p></Panel> : <div className="notification-list">{notifications.map((n) => <article key={n.id} className={n.read ? "notification-card read" : "notification-card unread"}><div className="notification-icon"><Bell /></div><a className="notification-body" href={notificationHref(n)} onClick={(event) => guardNotificationOpen(event, n)}><b>{lang === "ar" ? n.titleAr : n.titleEn}</b><span>{lang === "ar" ? n.messageAr : n.messageEn}</span><small>{new Date(n.createdAt).toLocaleString(lang === "ar" ? "ar-SA" : "en-US")}</small></a><div className="notification-actions">{!n.read && <span className="unread-dot" title="Unread" />}<a className="primary compact" href={notificationHref(n)} onClick={(event) => guardNotificationOpen(event, n)}>{lang === "ar" ? "فتح" : "Open"}</a><button className="compact" onClick={() => mark(n.id, !n.read)}>{n.read ? (lang === "ar" ? "غير مقروء" : "Unread") : (lang === "ar" ? "مقروء" : "Read")}</button></div></article>)}</div>}</Page>;
+  return <Page title={text[lang].notifications} right={<button className="primary" onClick={() => { setNotifications((items) => items.map((n) => visibleIds.has(n.id) ? { ...n, read: true } : n)); notify(lang === "ar" ? "تم تحديد كل الإشعارات كمقروءة" : "All notifications marked as read"); }}>{lang === "ar" ? "تحديد الكل كمقروء" : "Mark all read"}</button>}>{notifications.length === 0 ? <Panel title={lang === "ar" ? "لا توجد إشعارات" : "No notifications"}><p>{lang === "ar" ? "لا توجد إشعارات عمل حالية." : "No workflow notifications are currently pending."}</p></Panel> : <div className="notification-list">{notifications.map((n) => <article key={n.id} className={n.read ? "notification-card read" : "notification-card unread"}><div className="notification-icon"><Bell /></div><a className="notification-body" href={notificationHref(n)} onClick={(event) => guardNotificationOpen(event, n)}><b>{lang === "ar" ? n.titleAr : n.titleEn}</b><span>{lang === "ar" ? n.messageAr : n.messageEn}</span><small>{new Date(n.createdAt).toLocaleString(lang === "ar" ? "ar-SA" : "en-US")}</small></a><div className="notification-actions">{!n.read && <span className="unread-dot" title="Unread" />}<a className="primary compact" href={notificationHref(n)} onClick={(event) => guardNotificationOpen(event, n)}>{lang === "ar" ? "فتح" : "Open"}</a><button className="compact" onClick={() => mark(n.id, !n.read)}>{n.read ? (lang === "ar" ? "غير مقروء" : "Unread") : (lang === "ar" ? "مقروء" : "Read")}</button></div></article>)}</div>}</Page>;
 }
 function AnalyticsPage({ lang, user, publications, recordAction, notify }: { lang: Lang; user: User; publications: Publication[]; recordAction: (action: string, publication?: Publication, result?: AuditLog["result"], note?: string) => void; notify: (m: string) => void }) {
   const scopedPublications = visiblePublications(user, publications);
@@ -1745,7 +1708,7 @@ function AnalyticsPage({ lang, user, publications, recordAction, notify }: { lan
     recordAction(`Exported analytics ${format}`, undefined, "Success", `${scopedPublications.length} records`);
     notify(`${format} analytics export prepared`);
   }
-  return <Page title={text[lang].analytics} subtitle={lang === "ar" ? "مؤشرات النشر والترجمة والأداء." : "Publishing, translation, and performance metrics."} right={<ActionBar><button onClick={() => exportAnalytics("PDF")}>PDF</button><button onClick={() => exportAnalytics("Excel")}>Excel</button><button onClick={() => exportAnalytics("CSV")}>CSV</button></ActionBar>}><div className="grid two"><Panel title="Publications by sector"><Chart publications={scopedPublications} kind="bar" /></Panel><Panel title="Publishing success rate"><Chart publications={scopedPublications} kind="pie" /></Panel><Panel title="Approval time trend"><Chart publications={scopedPublications} kind="area" /></Panel><Panel title="Translation volume">{languages.map((l, i) => <Quality key={l} label={l} value={60 + i * 5} />)}</Panel></div></Page>;
+  return <Page title={text[lang].analytics} subtitle={lang === "ar" ? "مؤشرات النشر والترجمة والأداء." : "Publishing, translation, and performance metrics."} right={<ActionBar><button onClick={() => exportAnalytics("PDF")}>PDF</button><button onClick={() => exportAnalytics("Excel")}>Excel</button><button onClick={() => exportAnalytics("CSV")}>CSV</button></ActionBar>}><div className="grid two"><Panel title="Publications by sector"><Chart publications={scopedPublications} kind="bar" /></Panel><Panel title="Publishing results by status"><PublishingStatusChart publications={scopedPublications} /></Panel><Panel title="Approval workload by status"><ApprovalStatusChart publications={scopedPublications} /></Panel><Panel title="Translation readiness">{languages.map((l, i) => <Quality key={l} label={l} value={60 + i * 5} />)}</Panel></div></Page>;
 }
 function AuditPage({ lang, publications, auditLogs }: { lang: Lang; publications: Publication[]; auditLogs: AuditLog[] }) { const generated = publications.flatMap((p, i) => ["Login", "Content creation", "AI processing", "Submission", "Approval", "Publication"].map((a, j) => [dayOffset(-i, 8 + j), users[j % users.length].email, roles[j % roles.length].id, a, p.reference, j % 5 ? "Success" : "Warning"])); const rows = auditLogs.length ? auditLogs.map((a) => [a.date, a.user, a.role, a.action, a.reference, a.result]) : generated; return <Page title={text[lang].audit} subtitle={lang === "ar" ? "سجل قابل للتدقيق لكل عملية مؤثرة." : "Traceable log for every important operation."}><DataList rows={rows} headers={["Date", "User", "Role", "Action", "Reference", "Result"]} /></Page>; }
 function UsersPage({ lang, notify, recordAction }: { lang: Lang; notify: (m: string) => void; recordAction: (action: string, publication?: Publication, result?: AuditLog["result"], note?: string) => void }) {
@@ -1794,9 +1757,13 @@ function LanguageManagementPage({ lang, disabledLanguages, setDisabledLanguages,
   return <Page title={lang === "ar" ? "إدارة اللغات" : "Language Management"} subtitle={lang === "ar" ? "تعطيل اللغة يمنع اختيارها في النشرات الجديدة ولا يحذف الترجمات السابقة." : "Disabling a language removes it from new publications without deleting old translations."}><div className="card-grid">{languages.map((language) => <div className="content-card" key={language}><h3>{language}</h3><Badge status={disabledLanguages.includes(language) ? "Rejected" : "Approved"} lang={lang} />{disabledLanguages.includes(language) && <p className="validation">Existing scheduled publications using {language} show a warning and remain visible. Reason: {reasons[language]}</p>}<button onClick={() => toggle(language)}>{disabledLanguages.includes(language) ? "Enable" : "Disable"}</button></div>)}</div>{modalLanguage && <Modal title={`Disable ${modalLanguage}`} onClose={() => setModalLanguage(null)}><div className="form-grid"><label className="span">Reason<select value={reason} onChange={(e) => setReason(e.target.value)}><option value="">Select a reason</option><option>Language not required</option><option>Translation quality paused</option><option>Terminology review required</option><option>Operational policy update</option><option>Other</option></select></label><label className="span">Notes<textarea value={reason} onChange={(e) => setReason(e.target.value)} /></label></div><ActionBar><button onClick={() => setModalLanguage(null)}>Cancel</button><button className="primary" disabled={!reason.trim()} onClick={() => toggle(modalLanguage, reason)}>Confirm disable</button></ActionBar></Modal>}</Page>;
 }
 
-function ResetDemoPage({ lang, setPublications, setNotifications, setAuditLogs, setChannelsState, setDisabledLanguages }: { lang: Lang; setPublications: React.Dispatch<React.SetStateAction<Publication[]>>; setNotifications: React.Dispatch<React.SetStateAction<NotificationItem[]>>; setAuditLogs: React.Dispatch<React.SetStateAction<AuditLog[]>>; setChannelsState: React.Dispatch<React.SetStateAction<Channel[]>>; setDisabledLanguages: React.Dispatch<React.SetStateAction<string[]>> }) {
+function ResetDemoPage({ lang, setLang, setCurrentUser, setPresentationMode, setPublications, setNotifications, setAuditLogs, setChannelsState, setDisabledLanguages }: { lang: Lang; setLang: React.Dispatch<React.SetStateAction<Lang>>; setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>; setPresentationMode: React.Dispatch<React.SetStateAction<boolean>>; setPublications: React.Dispatch<React.SetStateAction<Publication[]>>; setNotifications: React.Dispatch<React.SetStateAction<NotificationItem[]>>; setAuditLogs: React.Dispatch<React.SetStateAction<AuditLog[]>>; setChannelsState: React.Dispatch<React.SetStateAction<Channel[]>>; setDisabledLanguages: React.Dispatch<React.SetStateAction<string[]>> }) {
   const [done, setDone] = useState(false);
   function reset() {
+    Object.keys(localStorage).filter((key) => key.startsWith("govpublish-")).forEach((key) => localStorage.removeItem(key));
+    setLang("ar");
+    setCurrentUser(null);
+    setPresentationMode(false);
     setPublications(seedPublications);
     setNotifications([]);
     setAuditLogs([]);
@@ -1810,6 +1777,9 @@ function ResetDemoPage({ lang, setPublications, setNotifications, setAuditLogs, 
 function visiblePublications(user: User, publications: Publication[]) {
   return publications.filter((p) => isPublicationVisibleToRole(p, user));
 }
+function notificationsForUser(user: User, notifications: NotificationItem[]) {
+  return notifications.filter((item) => !item.recipientId || item.recipientId === user.id);
+}
 function Page({ title, subtitle, right, children }: { title: string; subtitle?: string; right?: React.ReactNode; children: React.ReactNode }) { return <div className="page"><div className="page-head"><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>{right}</div>{children}</div>; }
 function Panel({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) { return <section className="panel"><div className="panel-head"><h2>{title}</h2>{right}</div>{children}</section>; }
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) { return <div className="modal-backdrop" role="dialog" aria-modal="true"><section className="modal"><div className="panel-head"><h2>{title}</h2><button onClick={onClose}>×</button></div>{children}</section></div>; }
@@ -1819,8 +1789,17 @@ function Timeline({ lang, items }: { lang: Lang; items: { time: string; labelAr:
 function Badge({ status, lang }: { status: string; lang: Lang }) { return <span className={`badge ${status.toLowerCase().replaceAll(" ", "-")}`}>{statusAr[status as Status] && lang === "ar" ? statusAr[status as Status] : status}</span>; }
 function StatusDot({ status }: { status: string }) { return <span className={`status-dot ${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span>; }
 function ActivityRow({ lang, p }: { lang: Lang; p: Publication }) { return <a className="activity-row" href={`#/approvals/${p.id}`}><Clock /><div><b>{p.title}</b><span>{sectors.find((s) => s.id === p.sectorId)?.[lang === "ar" ? "nameAr" : "nameEn"]} · {new Date(p.scheduledAt).toLocaleString(lang === "ar" ? "ar-SA" : "en-US")}</span></div><Badge status={p.status} lang={lang} /></a>; }
-function PublicationTable({ lang, publications, action }: { lang: Lang; publications: Publication[]; action?: (p: Publication) => React.ReactNode }) { return <Panel title={lang === "ar" ? "سجلات المحتوى" : "Content records"}><div className="table-wrap"><table><thead><tr>{["Reference", "Title", "Sector", "Category", "Languages", "Channels", "Schedule", "Priority", "Status", ""].map((h) => <th key={h}>{h}</th>)}</tr></thead><tbody>{publications.map((p) => <tr key={p.id}><td>{p.reference}</td><td>{p.title}</td><td>{sectors.find((s) => s.id === p.sectorId)?.[lang === "ar" ? "nameAr" : "nameEn"]}</td><td>{p.category}</td><td>{p.languages.join(", ")}</td><td>{p.channels.slice(0, 3).join(", ")}</td><td>{new Date(p.scheduledAt).toLocaleDateString(lang === "ar" ? "ar-SA" : "en-US")}</td><td><Badge status={p.priority} lang={lang} /></td><td><Badge status={p.status} lang={lang} /></td><td>{action?.(p)}</td></tr>)}</tbody></table></div></Panel>; }
+function PublicationTable({ lang, publications, action }: { lang: Lang; publications: Publication[]; action?: (p: Publication) => React.ReactNode }) { return <Panel title={lang === "ar" ? "سجلات المحتوى" : "Content records"}><div className="table-wrap"><table><thead><tr>{["Reference", "Title", "Sector", "Category", "Languages", "Channels", "Last Update", "Priority", "Status", ""].map((h) => <th key={h}>{h}</th>)}</tr></thead><tbody>{publications.map((p) => <tr key={p.id}><td>{p.reference}</td><td>{p.title}</td><td>{sectors.find((s) => s.id === p.sectorId)?.[lang === "ar" ? "nameAr" : "nameEn"]}</td><td>{p.category}</td><td>{p.languages.join(", ")}</td><td>{p.channels.slice(0, 3).join(", ")}</td><td>{new Date(p.updatedAt).toLocaleDateString(lang === "ar" ? "ar-SA" : "en-US")}</td><td><Badge status={p.priority} lang={lang} /></td><td><Badge status={p.status} lang={lang} /></td><td>{action?.(p)}</td></tr>)}</tbody></table></div></Panel>; }
 function Chart({ publications, kind }: { publications: Publication[]; kind: "pie" | "bar" | "area" }) { const data = sectors.slice(0, 6).map((s) => ({ name: s.abbreviation, value: publications.filter((p) => p.sectorId === s.id).length })); if (kind === "pie") return <ResponsiveContainer height={240}><PieChart><Pie data={data} dataKey="value" nameKey="name" innerRadius={52} outerRadius={88}>{data.map((_, i) => <Cell key={i} fill={["#0b1f3a", "#0f766e", "#b68a35", "#64748b", "#14b8a6", "#94a3b8"][i]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>; if (kind === "bar") return <ResponsiveContainer height={240}><BarChart data={data}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="value" fill="#0f766e" radius={[8, 8, 0, 0]} /></BarChart></ResponsiveContainer>; return <ResponsiveContainer height={240}><AreaChart data={data}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Area type="monotone" dataKey="value" stroke="#0f766e" fill="#ccfbf1" /></AreaChart></ResponsiveContainer>; }
+function PublishingStatusChart({ publications }: { publications: Publication[] }) {
+  const statuses = ["Scheduled", "Queued", "Publishing", "Published", "Failed", "Package generated"];
+  const data = statuses.map((status) => ({ name: status, value: publications.flatMap((p) => p.publishingResults).filter((result) => result.status === status).length }));
+  return <ResponsiveContainer height={240}><BarChart data={data}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" interval={0} tick={{ fontSize: 11 }} /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="value" fill="#0f766e" radius={[8, 8, 0, 0]} /></BarChart></ResponsiveContainer>;
+}
+function ApprovalStatusChart({ publications }: { publications: Publication[] }) {
+  const data = ["Draft", "AI Review", "Sector Review", "Ministry Review", "Returned by Ministry", "Approved", "Scheduled", "Published"].map((status) => ({ name: status, value: publications.filter((p) => p.status === status).length }));
+  return <ResponsiveContainer height={240}><AreaChart data={data}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" interval={0} tick={{ fontSize: 11 }} /><YAxis allowDecimals={false} /><Tooltip /><Area type="monotone" dataKey="value" stroke="#0f766e" fill="#ccfbf1" /></AreaChart></ResponsiveContainer>;
+}
 function Stepper({ step, labels }: { step: number; labels: string[] }) { return <div className="stepper">{labels.map((l, i) => <div className={step >= i + 1 ? "step on" : "step"} key={l}><span>{i + 1}</span>{l}</div>)}</div>; }
 function MediaGrid({ media, setMedia }: { media: MediaAsset[]; setMedia: React.Dispatch<React.SetStateAction<MediaAsset[]>> }) { return <div className="card-grid">{media.map((m) => <div className="media-card" key={m.id}><div className="preview" style={{ background: m.preview }} /><b>{m.name}</b><span>{m.size} · {m.dimensions}</span><input value={m.altText} onChange={(e) => setMedia((items) => items.map((x) => x.id === m.id ? { ...x, altText: e.target.value } : x))} /><button onClick={() => setMedia((items) => items.filter((x) => x.id !== m.id))}>Delete</button></div>)}</div>; }
 function SelectableGrid({ items, selected, setSelected, lang }: { items: Channel[]; selected: string[]; setSelected: React.Dispatch<React.SetStateAction<string[]>>; lang: Lang }) { return <Panel title={lang === "ar" ? "اختيار قنوات النشر" : "Select publishing channels"}><div className="card-grid">{items.map((c) => <button key={c.name} className={selected.includes(c.name) ? "choice selected" : "choice"} onClick={() => setSelected((arr) => arr.includes(c.name) ? arr.filter((x) => x !== c.name) : [...arr, c.name])}><Newspaper /><b>{c.name}</b><span>{c.status} · {c.method}</span><small>{c.account} · {c.media}</small></button>)}</div></Panel>; }
@@ -1828,7 +1807,7 @@ function Tabs({ items }: { items: { label: string; body: string }[] }) { const [
 function Quality({ label, value }: { label: string; value: number }) { return <div className="quality"><div><b>{label}</b><span>{value}%</span></div><div className="progress small"><span style={{ width: `${value}%` }} /></div></div>; }
 function SensitivePanel({ lang, findings }: { lang: Lang; findings: SensitiveFinding[] }) { return <Panel title={lang === "ar" ? "مراجعة المعلومات الحساسة" : "Sensitive Information Review"}>{findings.length ? findings.map((f) => <div className="finding" key={f.id}><ShieldCheck /><div><b>{f.type} · {f.severity}</b><p>{lang === "ar" ? f.explanationAr : f.explanationEn}</p></div><Badge status={f.blocking ? "High" : "Normal"} lang={lang} /></div>) : <div className="empty"><CheckCircle2 />{lang === "ar" ? "لا توجد معلومات حساسة حرجة. القرار النهائي للمراجع البشري." : "No critical sensitive information. Final decision remains with human reviewers."}</div>}</Panel>; }
 function ActionBar({ children }: { children: React.ReactNode }) { return <div className="action-bar">{children}</div>; }
-function ReviewChip({ label, status, reason, onApprove, onDisable, notify, lang }: { label: string; status: string; reason?: string; onApprove?: () => void; onDisable?: () => void; notify: (m: string) => void; lang: Lang }) { return <div className="review-chip"><b>{label}</b><Badge status={status} lang={lang} />{reason && <small className="validation">{reason}</small>}<button onClick={() => { onApprove?.(); notify(lang === "ar" ? "تم اعتماد العنصر" : "Item approved"); }}>Approve</button><button onClick={onDisable}>Disable</button></div>; }
+function ReviewChip({ label, status, reason, onApprove, onDisable, notify, lang }: { label: string; status: string; reason?: string; onApprove?: () => void; onDisable?: () => void; notify: (m: string) => void; lang: Lang }) { return <div className="review-chip"><b>{label}</b><Badge status={status} lang={lang} />{reason && <small className="validation">{reason}</small>}{onApprove && <button onClick={() => { onApprove(); notify(lang === "ar" ? "تم اعتماد العنصر" : "Item approved"); }}>Approve</button>}{onDisable && <button onClick={onDisable}>Disable</button>}</div>; }
 function Comments({ lang, comments, comment, setComment }: { lang: Lang; comments: Comment[]; comment: string; setComment: (s: string) => void }) { return <Panel title={text[lang].comments}>{comments.map((c) => <div className="comment" key={c.id}><b>{c.user}</b><span>{new Date(c.createdAt).toLocaleString(lang === "ar" ? "ar-SA" : "en-US")} · {c.internal ? "Internal" : "Public"}</span><p>{c.text}</p></div>)}<textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder={lang === "ar" ? "اكتب تعليقا داخليا أو اذكر مستخدما..." : "Write an internal comment or mention a user..."} /></Panel>; }
 function Filters({ lang, query, setQuery, status, setStatus }: { lang: Lang; query: string; setQuery: (s: string) => void; status: string; setStatus: (s: string) => void }) { return <div className="filters"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={text[lang].search} /><select value={status} onChange={(e) => setStatus(e.target.value)}><option>All</option>{Object.keys(statusAr).map((s) => <option key={s}>{s}</option>)}</select><select><option>{text[lang].sector}</option>{sectors.map((s) => <option key={s.id}>{lang === "ar" ? s.nameAr : s.nameEn}</option>)}</select><select><option>{text[lang].priority}</option><option>Urgent</option><option>High</option><option>Normal</option></select></div>; }
 function SimpleCards({ title, items }: { title: string; items: { title: string; body: string; action: () => void }[] }) { return <Page title={title}><div className="card-grid">{items.map((x) => <div className="content-card" key={x.title}><h3>{x.title}</h3><p>{x.body}</p><button onClick={x.action}>Use template</button></div>)}</div></Page>; }
@@ -1840,4 +1819,12 @@ function DataList({ headers, rows }: { headers: string[]; rows: (string | number
 function statusLabel(status: Status, lang: Lang) { return lang === "ar" ? statusAr[status] : status; }
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+
+
+
+
+
+
+
 
